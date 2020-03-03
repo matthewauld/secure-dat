@@ -1,0 +1,18 @@
+{
+  "name": "secure-dat",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dat-sdk": "^1.0.3",
+    "hyperdrive": "^10.5.3"
+  },
+  "devDependencies": {
+    "tape": "^4.13.0"
+  }
+}
