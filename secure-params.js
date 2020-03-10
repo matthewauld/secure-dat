@@ -5,6 +5,10 @@ const PRIV_KEY_ENCODING = {type:'pkcs8',format:'pem'}
 
 module.exports = class SecureParams{
   constructor(paramPath,
+               attrs,
+               dirtyAttrs,
+               users,
+               myKeys,
                publicParams,
                secretParams,
                diffiePrime,
@@ -12,11 +16,13 @@ module.exports = class SecureParams{
                diffiePublic,
                joinKey,
                pubDatKey,
-               secDatKey){
+               secDatKey,
+               version){
     this.paramPath    = paramPath
-    this.attrs        = []
-    this.users        = new Map()
-    this.myKeys       = new Map()
+    this.attrs        = attrs?attrs:[]
+    this.dirtyAttrs   = dirtyAttrs?dirtyAttrs:[]
+    this.users        = users?users:new Map()
+    this.myKeys       = myKeys?myKeys:new Map()
     this.publicParams = publicParams
     this.secretParams = secretParams
     this.diffiePrime  = diffiePrime
@@ -25,6 +31,7 @@ module.exports = class SecureParams{
     this.joinKey      = joinKey
     this.pubDatKey    = pubDatKey
     this.secDatKey    = secDatKey
+    this.version      = version
     //is this the owner?
     this.owner = this.secretParams?true:false
   }
