@@ -20,6 +20,7 @@ test =async ()=>{
 
   console.log(await x._read('/test'))
   console.log(await x.readFile('/test'))
+  await x.params.save()
   console.log(await SecureParams.load('x.json'))
 }
 test()

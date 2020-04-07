@@ -62,6 +62,8 @@ module.exports = class SecureParams{
     await paramFile.writeFile(await this.serialize())
     await paramFile.close()
   }
+
+  
   autoSave(){
 
   }

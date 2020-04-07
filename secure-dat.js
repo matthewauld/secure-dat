@@ -5,6 +5,7 @@ const fs = require('fs')
 const { Readable, Writable } = require('stream')
 const SecureParams = require('./secure-params')
 const utils = require('./utils')
+const attributeParser = require('./attributeParser')
 //TODO- move into some kind of versioning params object
 const DIFFIE_PRIME = '/qiSrdIq5bXLJCLu+GWZTaSjolgLZBz0Lu0qI662JSpuu5RvlrZV8hRReAc2WAsZtUCmq4w90ArRQd1aVFhOWJTTq49Pl9cqnoBd3e6nF5Iwo9lAmYHshbwfW+NWwUI9KHtA37Xlnnn2o2n1UIF4GWu8u0TP2SFIyL/VIKk/Snv3Xg+F/Y8P9akh/eQ3vg0XuOaZiXDedvZq6SoIQzKTFxapFkD9JGDZ5sTYnK+tREQz/bkSmURyQWsPUhghn41dfcDXNiPoSeZgS/utp5XxRtUyvnpWdHWyCNBab7zNrCfN0S3WgVRWjtjiaBelNNb8fFf4MErp5hylVfQrcHSosw=='
 const PUB_KEY_MODULUS_LENGTH = 4096
@@ -38,6 +39,7 @@ module.exports = class SecureDat{
     return index
   }
 
+
   async _getUserKey(key){
     this.params.pubDatKey
     const config_data = await this._read('/.sdat/config','utf8')
@@ -45,6 +47,9 @@ module.exports = class SecureDat{
     const joinKey = crypto.createPublicKey({key:config.joinKey,format:PUB_KEY_ENCODING.format,type:PUB_KEY_ENCODING.type})
     const index = this.getJoinIndex(config)
   }
+
+
+
 
   async addUser(attributes,url, opts ={}){
     if(!this.owner){
@@ -75,10 +80,31 @@ module.exports = class SecureDat{
     const [iv,encryptedKey, ciphertext] = await  utils.hybridEncrypt(joinKey,newKey)
     let keyfile = `${iv.toString('base64')}\n ${encryptedKey.toString('base64')}\n${ciphertext.toString('base64')}`
     await this._write(`/.sdat/users/${index}`, keyfile )
-    this.params.users.set(otherKey,{index:index,attributes:attributes,pubKey:joinKey})
-
+    this.params.users.set(otherKey,{index:index,attributes:attributes,pubKey:config.joinKey})
 
   }
+
+
+  async removeUser(key){
+    //Ensure user exists
+    if(!self.params.users.has(key)){
+      throw Error("No user exists with that key")
+    }
+    //remove the users key file
+    const user = self.params.users.get(key)
+     await self.unlink(`/.sdat/users/${user.index}`)
+
+    //add any attribute they had to the dirty attribute lits
+    for (let attr in attributeParser.parseAttributeList(user.attributes)){
+      if (attr != 'version'){
+        self.params.dirtyAttrs.append(attr)
+      }
+    }
+    //delete the user from the param file
+    self.params.users.delete(key)
+  }
+
+
   async readFile(filename,opts){
     //get return format
     let encoding = 'utf8'
@@ -111,10 +137,9 @@ module.exports = class SecureDat{
       throw Error("You do not have access to this file")
     }
     //decrypt the key
-    // TODO: Should this be
+    // TODO: Should this be using a zero IV?
     let key = Buffer.from(this.abe.decrypt('user', encryptedKey.buffer).key)
     let decipher  = await utils.symDecrypt(key,iv)
-    console.log(decipher)
     let data = decipher.update(ciphertext,null, encoding)
     data = decipher.final(encoding);
 
@@ -132,7 +157,15 @@ module.exports = class SecureDat{
     if(!this.owner){
       throw new Error("Cannot write to a SecureDat you do not own")
     }
+    //check to see if keys need to be refreshed
+    const attrs = attributeParser.parseAttributeTree(accessTree)
+    const dirty = attrs.reduce((acc,attr)=>{
+      return acc || self.params.dirtyAttrs.includes(attr)
+    },false)
 
+    if(dirty){
+      self.updateVersion()
+    }
     const algorithm = 'aes-256-cbc'
     //ensure there is an access tree
     if(!accessTree){
@@ -153,24 +186,15 @@ module.exports = class SecureDat{
     let ciphertext = cipher.update(data,'utf8','base64')
     ciphertext+= cipher.final('base64')
     await this._write(filename,header+ciphertext)
-    this.updateAccessTree(accessTree)
+    this.updateAttributes(attrs)
 
   }
 
-  updateAccessTree(accessTree){
+  updateAttributes(attrs){
     //TODO: add a tree parser. This only handles simple and/or statements for testing
-    let items = accessTree.split(' ')
-    let attributes = items.filter((item)=>{
-      if(parseInt(item)==! NaN ){
-        return false
-      }
-      if(['=','and','or','not','(',')','<','>','version','>=','<='].includes(item)){
-        return false
-      }
-      return true
-    }).map((x)=>x.trim())
 
-    attributes.forEach((attr)=>{
+
+    attrs.forEach((attr)=>{
       if(!this.params.attrs.includes(attr)){
           this.params.attrs.push(attr)
           this.validUserKey = false
@@ -184,6 +208,7 @@ module.exports = class SecureDat{
     this.abe.keygen(this.params.attrs.join('|')+'| version = 1000 ','user')
     this.validUserKey = true
   }
+
 
 
   async _load(params,key){
@@ -245,6 +270,7 @@ module.exports = class SecureDat{
                                    secDatKey,
                                    version)
     this.validUserKey = false
+    this.owner = true
     this.params.save()
   }
 
@@ -297,6 +323,8 @@ module.exports = class SecureDat{
     return await this.archive._archive.createReadStream(filename, opts)
   }
 
+
+
   /*
   * PASSTHROUGH - these function carry through to the underlying dat archive without modification
   */
@@ -304,8 +332,11 @@ module.exports = class SecureDat{
 
 
 
+  async unlink(filename){
+    return await this.archive.unlink(filename)
+  }
 
   async mkdir(path){
-    await this.archive.mkdir(path)
+    return await this.archive.mkdir(path)
   }
 }
