@@ -2,8 +2,8 @@ did this work?
 gothere1?
 gothere2?
 param_size 497
-at_size 7
+at_size 28
 encrypt result 0
 key_size 32
-ciphertest Bytes: 404
-ct_size 404
+ciphertest Bytes: 5161
+ct_size 5161

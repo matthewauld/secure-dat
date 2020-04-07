@@ -4,6 +4,7 @@ const crypto = require('crypto')
 const fs = require('fs')
 const { Readable, Writable } = require('stream')
 const SecureParams = require('./secure-params')
+const utils = require('./utils')
 //TODO- move into some kind of versioning params object
 const DIFFIE_PRIME = '/qiSrdIq5bXLJCLu+GWZTaSjolgLZBz0Lu0qI662JSpuu5RvlrZV8hRReAc2WAsZtUCmq4w90ArRQd1aVFhOWJTTq49Pl9cqnoBd3e6nF5Iwo9lAmYHshbwfW+NWwUI9KHtA37Xlnnn2o2n1UIF4GWu8u0TP2SFIyL/VIKk/Snv3Xg+F/Y8P9akh/eQ3vg0XuOaZiXDedvZq6SoIQzKTFxapFkD9JGDZ5sTYnK+tREQz/bkSmURyQWsPUhghn41dfcDXNiPoSeZgS/utp5XxRtUyvnpWdHWyCNBab7zNrCfN0S3WgVRWjtjiaBelNNb8fFf4MErp5hylVfQrcHSosw=='
 const PUB_KEY_MODULUS_LENGTH = 4096
@@ -23,13 +24,35 @@ module.exports = class SecureDat{
 
       this._archivePromise = DatArchive.load(key,opts).then(a=>this.archive = a)
     }
-
-
   }
 
 
-  async addUser(attributes,url){
+
+  getJoinIndex(otherConfig){
+    const otherDiffie = Buffer.from(otherConfig.diffiePublic,'base64')
+    const diffie = crypto.createDiffieHellman(this.params.diffiePrime)
+    diffie.setPrivateKey(this.params.diffieSecret)
+    const secret = diffie.computeSecret(otherDiffie)
+    const hash = crypto.createHash('sha256')
+    const index = hash.update(secret.toString('base64')).digest('hex')
+    return index
+  }
+
+  async _getUserKey(key){
+    this.params.pubDatKey
+    const config_data = await this._read('/.sdat/config','utf8')
+    const config = JSON.parse(config_data)
+    const joinKey = crypto.createPublicKey({key:config.joinKey,format:PUB_KEY_ENCODING.format,type:PUB_KEY_ENCODING.type})
+    const index = this.getJoinIndex(config)
+  }
+
+  async addUser(attributes,url, opts ={}){
+    if(!this.owner){
+      throw new Error("Cannot add user to a SecureDat you do not own")
+    }
     //add the version number to the attribute list
+
+    attributes = `${attributes}version=${this.params.version}|`
     //get the other users config file and parse
     const otherKey = await DatArchive.resolveName(url)
 
@@ -41,33 +64,72 @@ module.exports = class SecureDat{
     const config_data = await other.readFile('/.sdat/config','utf8')
     const config = JSON.parse(config_data)
     const joinKey = crypto.createPublicKey({key:config.joinKey,format:PUB_KEY_ENCODING.format,type:PUB_KEY_ENCODING.type})
-    const otherDiffie = Buffer.from(config.diffiePublic,'base64')
+    const index = this.getJoinIndex(config)
 
-    //compute Shared Secret, and hash it to get the new index
-    const secret = this.diffie.computeSecret(otherDiffie)
-    const hash = crypto.createHash('sha256')
-    const index = hash.update(secret.toString('base64')).digest('hex')
-
-    this.params.users.set(otherKey,{index:index,attributes:attributes,pubKey:joinKey})
     //generate a new key, encrypt it, and add it to the users folder.
 
     //TODO: turn this into a one step process
     this.abe.keygen(attributes,index)
-    const newKey = Buffer.from(this.abe.exportUserKey(index));
+    const newKey = Buffer.from(this.abe.exportUserKey(index))
 
-    const encryptedKey = crypto.publicEncrypt(joinKey,newKey);
-    await this._write(`/.sdat/users/${index}`, encryptedKey.toString('base64'))
+    const [iv,encryptedKey, ciphertext] = await  utils.hybridEncrypt(joinKey,newKey)
+    let keyfile = `${iv.toString('base64')}\n ${encryptedKey.toString('base64')}\n${ciphertext.toString('base64')}`
+    await this._write(`/.sdat/users/${index}`, keyfile )
+    this.params.users.set(otherKey,{index:index,attributes:attributes,pubKey:joinKey})
+
 
   }
-  async readFile(filename,opts={}){
+  async readFile(filename,opts){
+    //get return format
+    let encoding = 'utf8'
+    if(typeof opts === 'string'){
+      encoding = opts
+    } else if(opts && opts.encoding){
+      encoding = opts.encoding
+    }
+    //ensure there is an up-to-date user key
+    if(!this.validUserKey){
+      this.genUserKey()
+    }
 
-  }
+    let contents = await this._read(filename)
+    contents = contents.split('\n',4)
+    if (contents.length != 4){
+      throw new Error("Malformed file")
+    }
+
+    const accessTree   = contents[0]
+    const iv           = Buffer.from(contents[1],'base64')
+    const encryptedKey = Buffer.from(contents[2],'base64')
+    const ciphertext   = Buffer.from(contents[3],'base64')
+
+    //test to ensure you can access the file
+    let testKey = this.abe.encrypt(accessTree)
+    let testPlaintext = this.abe.decrypt('user',testKey.ciphertext)
+
+    if(utils.compareArrays(testKey.key,testPlaintext)){
+      throw Error("You do not have access to this file")
+    }
+    //decrypt the key
+    // TODO: Should this be
+    let key = Buffer.from(this.abe.decrypt('user', encryptedKey.buffer).key)
+    let decipher  = await utils.symDecrypt(key,iv)
+    console.log(decipher)
+    let data = decipher.update(ciphertext,null, encoding)
+    data = decipher.final(encoding);
+
+    return data
+ }
+
 
   async writeFile(filename,data,accessTree,opts={}){
+
+    accessTree =`( ${accessTree} ) and version >= ${this.params.version}`
     if(!(data instanceof Readable) &&  !(typeof data ==='string')){
       throw new Error("Data must be be either a readable stream or a string")
     }
-    if(!this.params){
+    //TODO: fix this
+    if(!this.owner){
       throw new Error("Cannot write to a SecureDat you do not own")
     }
 
@@ -75,93 +137,99 @@ module.exports = class SecureDat{
     //ensure there is an access tree
     if(!accessTree){
       throw new Error("missing accessTree. To encrypt in plaintext, pass PLAINTEXT")
-    } else if(accessTree == PLAINTEXT){
+    }
+    if(accessTree == PLAINTEXT){
       this._write(filename, data,opts)
     }
     //initalize iv, generate ciphertext
-    const iv = await this._genRandomBytes(16)
     const sKey = this.abe.encrypt(accessTree)
     const key = Buffer.from(sKey.key)
     const keyCiphertext = Buffer.from(sKey.ciphertext)
 
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
-    const writeStream = await this._createWriteStream(filename,opts)
-    console.log(writeStream)
-    //write the access tree, iv, and the key ciphertext as the first two lines.
-    writeStream.write(accessTree)
-    writeStream.write(`\n`)
-    writeStream.write(iv.toString('base64'))
-    writeStream.write(`\n`)
-    writeStream.write(keyCiphertext.toString('base64'))
-    writeStream.write(`\n`)
-
+    const [iv,cipher] = await utils.symEncrypt(key)
+    //write the access tree, iv, and the key ciphertext as the first three lines.
+    let header = `${accessTree}\n${iv.toString('base64')}\n${keyCiphertext.toString('base64')}\n`
     //encrypt and write the data
-    return new Promise((resolve,reject)=>{
-      writeStream.on('finish',()=>{resolve()})
-      writeStream.on('error',e=>reject(error))
-      if(data instanceof Readable){
-        data.pipe(cipher).pipe(writeStream)
-      } else {
-        cipher.pipe(writeStream)
+    let ciphertext = cipher.update(data,'utf8','base64')
+    ciphertext+= cipher.final('base64')
+    await this._write(filename,header+ciphertext)
+    this.updateAccessTree(accessTree)
 
-        cipher.end(data)
+  }
 
+  updateAccessTree(accessTree){
+    //TODO: add a tree parser. This only handles simple and/or statements for testing
+    let items = accessTree.split(' ')
+    let attributes = items.filter((item)=>{
+      if(parseInt(item)==! NaN ){
+        return false
       }
+      if(['=','and','or','not','(',')','<','>','version','>=','<='].includes(item)){
+        return false
+      }
+      return true
+    }).map((x)=>x.trim())
+
+    attributes.forEach((attr)=>{
+      if(!this.params.attrs.includes(attr)){
+          this.params.attrs.push(attr)
+          this.validUserKey = false
+      }
+
     })
   }
 
-  async _genRandomBytes(size){
-    return new Promise((resolve,reject)=>{
-      crypto.randomBytes(size,(err,buf)=>{
-        if(err){
-          reject(err)
-        }
-        resolve(buf)
-      })
-    })
+
+  genUserKey(){
+    this.abe.keygen(this.params.attrs.join('|')+'| version = 1000 ','user')
+    this.validUserKey = true
   }
+
 
   async _load(params,key){
+    //load Paramaters
     if (params instanceof SecureParam){
       this.params = params
     } else{
       this.params = await SecureParams.load(params)
-      this.diffie = crypto.createDiffieHellman(this.params.diffiePrime)
-      this.abe.importPublicParams(this.params.publicParams)
 
-      if(this.params.owner){
-        this.abe.importSecretParams(this.params.secretParams)
-        //generate a master key, only used for this instance.
-        //TODO: fix hardcoded 1000. Also, this might be slow? Should we generate and save master?
-        this.abe.keygen('user',this.params.attrs.join('|')+'|version=1000')
-      } else{
-        const key = Buffer.from(key,'base64')
-        this.abe.importUserKey('user',key.buf)
-      }
+      this.abe.importPublicParams(this.params.publicParams)
+    }
+      this.owner = (this.params.pubDatKey == key)?true:false
+
+    if(this.owner){
+      this.abe.importSecretParams(this.params.secretParams)
+      //key is false, as another key m that key must be regenerated at each
+      this.validUserKey = false
+    } else {
+      const key = await _getUserKey(key)
+      this.abe.importUserKey('user',key.buffer)
+      this.validUserKey = true
     }
   }
+
 
 
   async _init(paramPath){
     //inialize params
     this.abe.generateParams()
-    let publicParams = Buffer.from(this.abe.exportPublicParams())
-    let secretParams = Buffer.from(this.abe.exportSecretParams())
-    let diffiePrime = Buffer.from(DIFFIE_PRIME,'base64')
+    const publicParams = Buffer.from(this.abe.exportPublicParams())
+    const secretParams = Buffer.from(this.abe.exportSecretParams())
+    const diffiePrime = Buffer.from(DIFFIE_PRIME,'base64')
+    const version = 1
     await this.mkdir('/.sdat')
     await this.mkdir('/.sdat/users')
     await this._write('/.sdat/version','1')
     await this._write('/.sdat/pub_params',publicParams.toString('base64'))
     this.diffie = crypto.createDiffieHellman(diffiePrime)
-    let version =1
     //generate the diffiePair and pub pair to allow adding and being added to other dats
-    let diffieSecret = this.diffie.generateKeys()
-    let diffiePublic = this.diffie.getPrivateKey()
-    let joinKey =  await this._genKeyPair()
-    let config_file = {joinKey:joinKey.pub.export(PUB_KEY_ENCODING),diffiePublic:diffiePublic.toString('base64')}
+    const diffieSecret = this.diffie.generateKeys()
+    const diffiePublic = this.diffie.getPrivateKey()
+    const joinKey =  await utils.genKeyPair()
+    const config_file = {joinKey:joinKey.pub.export(PUB_KEY_ENCODING),diffiePublic:diffiePublic.toString('base64')}
     await this._write('/.sdat/config',JSON.stringify(config_file))
-    let pubDatKey = await DatArchive.resolveName(this.archive.url)
-    let secDatKey = await this.archive.getSecretKey()
+    const pubDatKey = await DatArchive.resolveName(this.archive.url)
+    const secDatKey = await this.archive.getSecretKey()
     this.params = new SecureParams(paramPath,
                                    null,
                                    null,
@@ -176,23 +244,41 @@ module.exports = class SecureDat{
                                    pubDatKey,
                                    secDatKey,
                                    version)
-    this.abe.keygen('user',this.params.attrs.join('|')+'|version=1000')
+    this.validUserKey = false
+    this.params.save()
   }
 
 
 
 
 
-  async _genKeyPair(){
-    return new Promise((resolve,reject)=>{
-      crypto.generateKeyPair('rsa',{modulusLength: PUB_KEY_MODULUS_LENGTH},
-                            (err,publicKey,privateKey)=>{
-        if(err)
-          reject(err)
-        resolve({pub:publicKey,priv:privateKey})
-      })
-    })
+
+
+  /*
+   * STATIC FUNCTIONS
+   *
+   */
+
+  static async new(opts,paramPath){
+    const sdat = new SecureDat(null,opts,{})
+
+    await sdat._archivePromise
+    await sdat._init(paramPath)
+    return sdat
   }
+
+  static async loadSecureDat(key,opts,params){
+      const sdat = new SecureDat(key,opts)
+      await sdat._archivePromise
+      await sdat._load(params,key)
+      return sdat
+  }
+
+
+  /*
+  * PASSTHROUGH -HIDDEN - these function carrythough to the underlying dat, may be modified, and may be unstable.
+  * Allows for changes to underlying Dat SDK
+  */
 
   async _write(filename,data,opts={}){
     return await this.archive.writeFile(filename,data,opts)
@@ -211,29 +297,15 @@ module.exports = class SecureDat{
     return await this.archive._archive.createReadStream(filename, opts)
   }
 
-
-
-  static async new(opts){
-    const sdat = new SecureDat(null,opts,{})
-
-    await sdat._archivePromise
-    await sdat._init()
-    return sdat
-  }
-
-  static async loadSecureDat(key,opts,params){
-      const sdat = new SecureDat(key,opts)
-      await sdat._archivePromise
-      await sdat._load(params)
-      return sdat
-  }
-
-
   /*
-  * CARRYTHROUGH - these function carrythough to the underlying dat archive without modification
+  * PASSTHROUGH - these function carry through to the underlying dat archive without modification
   */
+
+
+
+
+
   async mkdir(path){
-    console.log()
     await this.archive.mkdir(path)
   }
 }
