@@ -2,24 +2,24 @@
 //TODO: fix, should throw errors if poorly formed.
 module.exports.parseAttributeList = (list)=>{
   const result = []
-  const operators = ['=','<','>','>=','<=']
+  const operators = ['>=','<=','=','<','>']
   let l = list.split('|')
-  for (let element in l){
-    if(element === ""){
+  for (let element of l){
+    if(element == ""){
       continue
     }
-    let attr
-    for(let operator in operators){
+    let attr = null
+    for(let operator of operators){
       if (element.includes(operator)){
         attr = (element.split(operator)[0])
         break
       }
     }
     //if no operator, trim and add.
-    if(!attr){
-      result.append(element.trim())
+    if(attr == null){
+      result.push(element.trim())
     } else {
-      result.append(attr.trim)
+      result.push(attr.trim())
     }
   }
   return result

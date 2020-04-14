@@ -1,0 +1,10 @@
+const SecureDat = require('../secure-dat.js')
+
+test = async ()=>{
+  const x = await SecureDat.new({},'x.json')
+  const y = await SecureDat.new({},'y.json')
+  const testData = "This is some data\nthis is some more data"
+  await x.writeFile('/test2.txt',testData,"a or b")
+  const x_using_y = await SecureDat.load(x.params.pubDatKey,{},y.params)
+  
+}

@@ -25,9 +25,25 @@ module.exports.hybridEncrypt = async (pubKey,data) => {
   const encryptedKey = crypto.publicEncrypt(pubKey,key)
   const [iv, cipher] = await module.exports.symEncrypt(key)
 
-  let ciphertext = cipher.update(data)
-  ciphertext += cipher.final()
+  let ciphertext = cipher.update(data,null,'base64')
+  ciphertext += cipher.final('base64')
   return [iv, encryptedKey, ciphertext]
+}
+
+module.exports.hybridDecrypt = (keyfile, privKey) => {
+  let [iv,encryptedKey,ciphertext] = keyfile.split('\n')
+  iv = Buffer.from(iv,'base64')
+  encryptedKey = Buffer.from(encryptedKey,'base64')
+  ciphertext = Buffer.from(ciphertext,'base64')
+  const symKey = crypto.privateDecrypt(privKey,encryptedKey)
+  const decipher = crypto.createDecipheriv(ALOGRITHM, symKey, iv)
+  let decrypted = decipher.update(ciphertext,null,'base64')
+  decrypted += decipher.final('base64')
+
+  return decrypted
+
+
+
 }
 
 

@@ -30,8 +30,9 @@ module.exports = class SecureDat{
 
 
   getJoinIndex(otherConfig){
+
     const otherDiffie = Buffer.from(otherConfig.diffiePublic,'base64')
-    const diffie = crypto.createDiffieHellman(this.params.diffiePrime)
+    const diffie = crypto.createDiffieHellman(Buffer.from(DIFFIE_PRIME,'base64'))
     diffie.setPrivateKey(this.params.diffieSecret)
     const secret = diffie.computeSecret(otherDiffie)
     const hash = crypto.createHash('sha256')
@@ -40,12 +41,15 @@ module.exports = class SecureDat{
   }
 
 
-  async _getUserKey(key){
-    this.params.pubDatKey
+  async _getGuestUserKey(key){
+
     const config_data = await this._read('/.sdat/config','utf8')
     const config = JSON.parse(config_data)
-    const joinKey = crypto.createPublicKey({key:config.joinKey,format:PUB_KEY_ENCODING.format,type:PUB_KEY_ENCODING.type})
     const index = this.getJoinIndex(config)
+
+    const keyfile = await this._read(`/.sdat/users/${index}`)
+    let userKey = utils.hybridDecrypt(keyfile,this.params.joinKey.priv)
+    return Buffer.alloc(Buffer.byteLength(userKey,'base64'),userKey,'base64')
   }
 
 
@@ -57,7 +61,7 @@ module.exports = class SecureDat{
     }
     //add the version number to the attribute list
 
-    attributes = `${attributes}version=${this.params.version}|`
+
     //get the other users config file and parse
     const otherKey = await DatArchive.resolveName(url)
 
@@ -74,34 +78,40 @@ module.exports = class SecureDat{
     //generate a new key, encrypt it, and add it to the users folder.
 
     //TODO: turn this into a one step process
-    this.abe.keygen(attributes,index)
+    await this.generateUserKey(attributes,index,joinKey)
+    this.params.users.set(otherKey,{index:index,attributes:attributes,pubKey:config.joinKey})
+  }
+
+
+  async generateUserKey(attributes,index,joinKey){
+    const attributeList = `${attributes}version=${this.params.version}|`
+    this.abe.keygen(attributeList,index)
     const newKey = Buffer.from(this.abe.exportUserKey(index))
 
     const [iv,encryptedKey, ciphertext] = await  utils.hybridEncrypt(joinKey,newKey)
-    let keyfile = `${iv.toString('base64')}\n ${encryptedKey.toString('base64')}\n${ciphertext.toString('base64')}`
-    await this._write(`/.sdat/users/${index}`, keyfile )
-    this.params.users.set(otherKey,{index:index,attributes:attributes,pubKey:config.joinKey})
-
+    let keyfile = `${iv.toString('base64')}\n ${encryptedKey.toString('base64')}\n${ciphertext}`
+    await this._write(`/.sdat/users/${index}`, keyfile)
   }
 
 
   async removeUser(key){
     //Ensure user exists
-    if(!self.params.users.has(key)){
+    if(!this.params.users.has(key)){
       throw Error("No user exists with that key")
     }
     //remove the users key file
-    const user = self.params.users.get(key)
-     await self.unlink(`/.sdat/users/${user.index}`)
+    const user = this.params.users.get(key)
+     await this.unlink(`/.sdat/users/${user.index}`)
 
     //add any attribute they had to the dirty attribute lits
-    for (let attr in attributeParser.parseAttributeList(user.attributes)){
+    let attrs = attributeParser.parseAttributeList(user.attributes)
+    for (let attr of attrs){
       if (attr != 'version'){
-        self.params.dirtyAttrs.append(attr)
+        this.params.dirtyAttrs.push(attr)
       }
     }
     //delete the user from the param file
-    self.params.users.delete(key)
+    this.params.users.delete(key)
   }
 
 
@@ -128,10 +138,21 @@ module.exports = class SecureDat{
     const iv           = Buffer.from(contents[1],'base64')
     const encryptedKey = Buffer.from(contents[2],'base64')
     const ciphertext   = Buffer.from(contents[3],'base64')
-
     //test to ensure you can access the file
     let testKey = this.abe.encrypt(accessTree)
-    let testPlaintext = this.abe.decrypt('user',testKey.ciphertext)
+
+    let  testPlaintext;
+    try{
+
+      testPlaintext = this.abe.decrypt('user',testKey.ciphertext)
+
+    } catch (e){
+      throw Error("You do not have access to this file")
+    }
+
+
+
+
 
     if(utils.compareArrays(testKey.key,testPlaintext)){
       throw Error("You do not have access to this file")
@@ -141,7 +162,7 @@ module.exports = class SecureDat{
     let key = Buffer.from(this.abe.decrypt('user', encryptedKey.buffer).key)
     let decipher  = await utils.symDecrypt(key,iv)
     let data = decipher.update(ciphertext,null, encoding)
-    data = decipher.final(encoding);
+    data += decipher.final(encoding);
 
     return data
  }
@@ -149,7 +170,7 @@ module.exports = class SecureDat{
 
   async writeFile(filename,data,accessTree,opts={}){
 
-    accessTree =`( ${accessTree} ) and version >= ${this.params.version}`
+
     if(!(data instanceof Readable) &&  !(typeof data ==='string')){
       throw new Error("Data must be be either a readable stream or a string")
     }
@@ -160,12 +181,12 @@ module.exports = class SecureDat{
     //check to see if keys need to be refreshed
     const attrs = attributeParser.parseAttributeTree(accessTree)
     const dirty = attrs.reduce((acc,attr)=>{
-      return acc || self.params.dirtyAttrs.includes(attr)
+      return acc || this.params.dirtyAttrs.includes(attr)
     },false)
-
     if(dirty){
-      self.updateVersion()
+      await this.updateVersion()
     }
+    accessTree =`( ${accessTree} ) and version >= ${this.params.version}`
     const algorithm = 'aes-256-cbc'
     //ensure there is an access tree
     if(!accessTree){
@@ -190,10 +211,20 @@ module.exports = class SecureDat{
 
   }
 
+
+  async updateVersion(){
+    //increment current version
+    this.params.version += 1
+
+    //regenerate all non-owner keys
+    for (let user of this.params.users){
+      await this.generateUserKey(user[1].attributes,user[1].index,user[1].pubKey)
+    }
+  }
+
+
   updateAttributes(attrs){
     //TODO: add a tree parser. This only handles simple and/or statements for testing
-
-
     attrs.forEach((attr)=>{
       if(!this.params.attrs.includes(attr)){
           this.params.attrs.push(attr)
@@ -210,25 +241,33 @@ module.exports = class SecureDat{
   }
 
 
-
   async _load(params,key){
     //load Paramaters
-    if (params instanceof SecureParam){
+    if (params instanceof SecureParams){
       this.params = params
     } else{
       this.params = await SecureParams.load(params)
 
-      this.abe.importPublicParams(this.params.publicParams)
+
     }
       this.owner = (this.params.pubDatKey == key)?true:false
 
     if(this.owner){
-      this.abe.importSecretParams(this.params.secretParams)
+      this.abe.importPublicParams(this.params.publicParams.buffer)
+      this.abe.importSecretParams(this.params.secretParams.buffer)
       //key is false, as another key m that key must be regenerated at each
       this.validUserKey = false
     } else {
-      const key = await _getUserKey(key)
-      this.abe.importUserKey('user',key.buffer)
+      const pubParams = await this._read('/.sdat/pub_params')
+      this.abe.importPublicParams(Buffer.alloc(Buffer.byteLength(pubParams,'base64'),pubParams,'base64').buffer)
+      let userKey
+      try{
+         userKey = await this._getGuestUserKey(key)
+      } catch(e){
+        throw new Error("You do not have access to this dat")
+      }
+
+      this.abe.importUserKey('user',userKey.buffer)
       this.validUserKey = true
     }
   }
@@ -246,10 +285,10 @@ module.exports = class SecureDat{
     await this.mkdir('/.sdat/users')
     await this._write('/.sdat/version','1')
     await this._write('/.sdat/pub_params',publicParams.toString('base64'))
-    this.diffie = crypto.createDiffieHellman(diffiePrime)
+    const diffie = crypto.createDiffieHellman(diffiePrime)
     //generate the diffiePair and pub pair to allow adding and being added to other dats
-    const diffieSecret = this.diffie.generateKeys()
-    const diffiePublic = this.diffie.getPrivateKey()
+    const diffiePublic = diffie.generateKeys()
+    const diffieSecret = diffie.getPrivateKey()
     const joinKey =  await utils.genKeyPair()
     const config_file = {joinKey:joinKey.pub.export(PUB_KEY_ENCODING),diffiePublic:diffiePublic.toString('base64')}
     await this._write('/.sdat/config',JSON.stringify(config_file))
@@ -293,7 +332,7 @@ module.exports = class SecureDat{
     return sdat
   }
 
-  static async loadSecureDat(key,opts,params){
+  static async load(key,opts,params){
       const sdat = new SecureDat(key,opts)
       await sdat._archivePromise
       await sdat._load(params,key)

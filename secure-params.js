@@ -39,13 +39,14 @@ module.exports = class SecureParams{
     // TODO: add 'encrypt and to dat' option
     let saveObject = {
       attrs: this.attrs,
+      dirtyAttrs: this.dirtyAttrs,
       users: Array.from(this.users),
       myKeys: Array.from(this.myKeys),
       publicParams: this.publicParams?this.publicParams.toString('base64'):null,
       secretParams: this.secretParams?this.secretParams.toString('base64'):null,
       diffiePrime: this.diffiePrime?this.diffiePrime.toString('base64'):null,
       diffieSecret: this.diffieSecret?this.diffieSecret.toString('base64'):null,
-      diffiePublic: this.diffieSecret?this.diffieSecret.toString('base64'):null,
+      diffiePublic: this.diffiePublic?this.diffiePublic.toString('base64'):null,
       joinKey: this.joinKey?{
         pub: this.joinKey.pub.export(PUB_KEY_ENCODING),
         priv: this.joinKey.priv.export(PRIV_KEY_ENCODING),
@@ -63,7 +64,7 @@ module.exports = class SecureParams{
     await paramFile.close()
   }
 
-  
+
   autoSave(){
 
   }
@@ -77,11 +78,11 @@ module.exports = class SecureParams{
                  params.dirtyAttrs,
                  params.users,
                  params.myKeys,
-                 params.publicParams,
-                 params.secretParams,
-                 params.diffiePrime,
-                 params.diffieSecret,
-                 params.diffiePublic,
+                 Buffer.from(params.publicParams,'base64'),
+                 Buffer.from(params.secretParams,'base64'),
+                 Buffer.from(params.diffiePrime, 'base64'),
+                 Buffer.from(params.diffieSecret, 'base64'),
+                 Buffer.from(params.diffiePublic, 'base64'),
                  params.joinKey,
                  params.pubDatKey,
                  params.secDatKey,
