@@ -1,12 +1,11 @@
 const {DatArchive} = require('dat-sdk/auto')
-const OpenAbeJS = require('../openabejs/build/Release/openabejs.node').OpenABEjs
+const OpenAbeJS = require('openabejs').OpenABEjs
 const crypto = require('crypto')
 const fs = require('fs')
 const { Readable, Writable } = require('stream')
 const SecureParams = require('./secure-params')
 const utils = require('./utils')
 const attributeParser = require('./attributeParser')
-//TODO- move into some kind of versioning params object
 const DIFFIE_PRIME = '/qiSrdIq5bXLJCLu+GWZTaSjolgLZBz0Lu0qI662JSpuu5RvlrZV8hRReAc2WAsZtUCmq4w90ArRQd1aVFhOWJTTq49Pl9cqnoBd3e6nF5Iwo9lAmYHshbwfW+NWwUI9KHtA37Xlnnn2o2n1UIF4GWu8u0TP2SFIyL/VIKk/Snv3Xg+F/Y8P9akh/eQ3vg0XuOaZiXDedvZq6SoIQzKTFxapFkD9JGDZ5sTYnK+tREQz/bkSmURyQWsPUhghn41dfcDXNiPoSeZgS/utp5XxRtUyvnpWdHWyCNBab7zNrCfN0S3WgVRWjtjiaBelNNb8fFf4MErp5hylVfQrcHSosw=='
 const PUB_KEY_MODULUS_LENGTH = 4096
 const PUB_KEY_ENCODING = {type:'spki', format:'pem'}
