@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-
-. ./cppsrc/openabe/env
-cd cppsrc/openabejs
+cd cppsrc/openabe
+. ./env
+cd ../openabejs
 make
 cd ../..
-node-gyp rebuild
+npm run build
