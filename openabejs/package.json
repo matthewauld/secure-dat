@@ -1,0 +1,23 @@
+{
+  "name": "openabejs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "preinstall":"./scripts/install_openabe.sh",
+    "install":"./scripts/install_openabejs.sh",
+    "build": "node-gyp rebuild",
+    "clean": "./scripts/clean.sh",
+    "test": "node test/*.js"
+  },
+  "author": "Matthew Auld",
+  "license": "ISC",
+  "dependencies": {
+    "node-gyp": "^6.1.0",
+    "node-addon-api": "^2.0.0"
+  },
+  "devDependencies": {
+    "tape": "^4.13.0"
+  }
+}
