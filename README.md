@@ -1,6 +1,11 @@
 # Secure Dat Library
 
-##Install instruction
+## Install instruction
+Requires Node v.11 as Node v.12 introduces breaking changes:
+To install:
+```curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -```
+```sudo apt-get install -y nodejs```
+
 simply clone repo, and run ```npm run install```
 NOTE: Relies on the OpenABEJS library, which compiles from source.
 
