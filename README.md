@@ -39,4 +39,5 @@ Public params used for abe encryption
 
 ### Secure param files
  - created when a new SecureDat is created, contains json object with private keys and user lists for the
- - if passed into ```SecureDat.load()``` with the full
+ - if passed into ```SecureDat.load()``` with a key matching the param file, will load as owner. otherwise loads as guest.
+ - can be saved with ```SecureDat.params.save()```
