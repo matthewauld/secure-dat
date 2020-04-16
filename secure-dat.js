@@ -1,5 +1,5 @@
 const {DatArchive} = require('dat-sdk/auto')
-const OpenAbeJS = require('../openabejs/build/Release/openabejs.node').OpenABEjs
+const OpenAbeJS = require('./openabejs/build/Release/openabejs.node').OpenABEjs
 const crypto = require('crypto')
 const fs = require('fs')
 const { Readable, Writable } = require('stream')

@@ -5,8 +5,8 @@
   "main": "index.js",
   "gypfile": true,
   "scripts": {
-    "preinstall":"./scripts/install_openabe.sh",
-    "install":"./scripts/install_openabejs.sh",
+    "preinstall": "./scripts/install_openabe.sh",
+    "install": "./scripts/install_openabejs.sh",
     "build": "node-gyp rebuild",
     "clean": "./scripts/clean.sh",
     "test": "node test/*.js"

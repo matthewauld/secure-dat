@@ -10,7 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "dat-sdk": "^1.0.3",
-    "hyperdrive": "^10.5.3",
+    "hyperdrive": "^10.5.3"
   },
   "devDependencies": {
     "tape": "^4.13.0"
