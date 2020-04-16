@@ -6,7 +6,14 @@ To install:
 ```curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -```
 ```sudo apt-get install -y nodejs```
 
-simply clone repo, and run ```npm run install```
+To install:
+- clone the repo
+- run ```cd secure-dat/openabejs```
+- run ```sudo npm install``` this will install the base abe library, as well as compile the node addon
+- run ```cd ..```
+- run ```npm install``` this installs dependancies
+- run ```node test/*``` to run tests.
+
 NOTE: Relies on the OpenABEJS library, which compiles from source.
 
 ## Source Files
