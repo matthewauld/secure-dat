@@ -1,5 +1,5 @@
 # Secure Dat Library
-
+NOTE: NOT A FUNCTIONAL PROGRAM. Merely a proof of concept. Only use in a vm you don't care about!
 ## Install instruction
 Requires Node v.11 as Node v.12 introduces breaking changes:
 To install:
